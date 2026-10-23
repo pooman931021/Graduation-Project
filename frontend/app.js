@@ -121,6 +121,11 @@ async function startJob() {
   const startBtn = document.getElementById("start-btn");
   const cancelBtn = document.getElementById("cancel-btn");
   startBtn.disabled = true;
+  window.Learning.beginJob();
+  document.getElementById("video-file").disabled = true;
+  currentJobId = null;
+  if (pollTimer) clearInterval(pollTimer);
+  try { sessionStorage.removeItem("currentJobId"); } catch (_) {}
   cancelBtn.style.display = "inline-block";
   cancelBtn.disabled = false;
   document.getElementById("job-status-line").textContent = "上傳中...";
@@ -138,6 +143,7 @@ async function startJob() {
 
     currentJobId = body.job_id;
     try { sessionStorage.setItem("currentJobId", currentJobId); } catch (_) {}
+    try { sessionStorage.setItem("learningFileIdentity", window.Learning.fileIdentity()); } catch (_) {}
     document.getElementById("job-status-line").textContent =
       `工作已建立：${currentJobId}（狀態：${body.status}）`;
     appendLogMessage(`[系統] 伺服器已建立任務 ${currentJobId}，啟動背景管線處理...`);
@@ -146,6 +152,7 @@ async function startJob() {
     document.getElementById("job-status-line").textContent = `上傳失敗：${e.message}`;
     appendLogMessage(`[錯誤] 影片上傳失敗：${e.message}`);
     startBtn.disabled = false;
+    document.getElementById("video-file").disabled = false;
     cancelBtn.style.display = "none";
   }
 }
@@ -230,7 +237,17 @@ async function shutdownSystem() {
 async function pollStatus() {
   if (!currentJobId) return;
   await pollLogs();
-  const resp = await fetch(`${API_BASE}/api/jobs/${currentJobId}/status`);
+  let resp;
+  try { resp = await fetch(`${API_BASE}/api/jobs/${currentJobId}/status`); }
+  catch (_) { document.getElementById("job-status-line").textContent = "暫時無法連線後端，正在重試…"; return; }
+  if (resp.status === 404) {
+    clearInterval(pollTimer); pollTimer = null;
+    document.getElementById("start-btn").disabled = false;
+    document.getElementById("video-file").disabled = false;
+    document.getElementById("job-status-line").textContent = "找不到上次工作，請重新選擇影片開始。";
+    try { sessionStorage.removeItem("currentJobId"); } catch (_) {}
+    return;
+  }
   if (!resp.ok) return;
   const body = await resp.json();
 
@@ -246,6 +263,7 @@ async function pollStatus() {
     pollTimer = null;
     await pollLogs();
     document.getElementById("start-btn").disabled = false;
+    document.getElementById("video-file").disabled = false;
     document.getElementById("cancel-btn").style.display = "none";
   }
 }
@@ -279,12 +297,16 @@ async function loadResultsForSelectedChannel() {
   const channel = document.getElementById("channel-select").value;
   if (!currentJobId || !channel) return;
 
-  const resp = await fetch(
+  const requestedJob = currentJobId;
+  let resp;
+  try { resp = await fetch(
     `${API_BASE}/api/jobs/${currentJobId}/results?channel=${encodeURIComponent(channel)}`,
-  );
+  ); } catch (_) { return; }
   if (!resp.ok) return;
   const body = await resp.json();
+  if (requestedJob !== currentJobId || channel !== document.getElementById("channel-select").value) return;
   renderResultsTable(body);
+  await window.Learning.showResults(body, currentJobId);
 }
 
 function renderResultsTable(body) {
@@ -372,6 +394,7 @@ try {
   const savedJobId = sessionStorage.getItem("currentJobId");
   if (savedJobId) {
     currentJobId = savedJobId;
+    window.Learning.restoreFile(sessionStorage.getItem("learningFileIdentity"));
     const logBox = document.getElementById("realtime-log-box");
     if (logBox && (logBox.textContent.trim() === "尚未開始處理影片..." || !logBox.textContent.trim())) {
       logBox.textContent = `[系統] 載入既有工作 ${currentJobId}，正在同步最新狀態與日誌...\n`;

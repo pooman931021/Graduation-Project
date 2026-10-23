@@ -53,6 +53,7 @@ from src.api.results_reader import (
     export_csv_path,
     list_available_channels,
     read_channel_results,
+    read_subtitles,
     resolve_frame_path,
 )
 
@@ -160,6 +161,13 @@ def create_app(
         新增的「測試期間方便操作」參數（見 PROJECT_NOTES.md 第 16 節），成品
         完成後使用者會要求移除或改為固定值。
         """
+        # Some FastAPI versions interpret missing boolean form fields as unchecked.
+        # Preserve this API's documented True defaults while respecting explicit false.
+        submitted = await request.form()
+        include_channel1 = include_channel1 if "include_channel1" in submitted else True
+        include_channel2 = include_channel2 if "include_channel2" in submitted else True
+        include_channel3 = include_channel3 if "include_channel3" in submitted else True
+        denoise = denoise if "denoise" in submitted else True
         job_store: JobStore = request.app.state.job_store
         data_output_root = request.app.state.data_output_root
         upload_dir: Path = request.app.state.upload_dir
@@ -277,6 +285,13 @@ def create_app(
                 status_code=404,
                 detail=f"{e}（目前工作狀態：{job['status']}，目前階段：{job['current_stage']}）",
             ) from e
+
+    @app.get("/api/jobs/{job_id}/subtitles")
+    def get_job_subtitles(job_id: str, request: Request):
+        job = request.app.state.job_store.get_job(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="找不到這個工作")
+        return {"subtitles": read_subtitles(request.app.state.data_output_root, job["video_id"])}
 
     @app.get("/api/jobs/{job_id}/frame")
     async def get_job_frame(job_id: str, request: Request, timestamp: float = Query(...)):
