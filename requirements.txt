@@ -21,6 +21,7 @@ python-mecab-ko>=1.3.7; python_version < "3.13"
 # Ollama 執行環境本身不透過 pip 安裝（含模型下載），步驟見 LOCAL_TESTING.md；
 # requests 則是 src/nlp/llm_client.py 呼叫 Ollama 本地 REST API 所需的一般 HTTP 套件。
 requests>=2.31
+youtube-transcript-api>=1.2.4,<2
 # 若之後改接外部 LLM API，屆時再補上對應 SDK 套件（如 anthropic / openai）。
 
 # ---- 匯出 ----

@@ -185,3 +185,27 @@ def resolve_frame_path(data_output_root: str | Path, video_id: str, timestamp: f
     if best_path is not None and not best_path.exists():
         return None
     return best_path
+
+
+def read_subtitles(data_output_root: str | Path, video_id: str) -> list[dict]:
+    """Read actual OCR sentences; exported dictionary examples are not subtitles."""
+    import json
+    youtube_path = Path(data_output_root) / video_id / "youtube.json"
+    if youtube_path.exists():
+        return json.loads(youtube_path.read_text(encoding="utf-8"))["subtitles"]
+    from src.dedup.deduplicator import deduplicate
+    from src.nlp.text_cleaner import clean_ocr_text
+    from src.ocr.results_io import load_ocr_results
+
+    path = Path(data_output_root) / video_id / "ocr_on" / "ocr_results.csv"
+    if not path.exists():
+        return []
+    cleaned = []
+    for result in load_ocr_results(str(path)):
+        text = clean_ocr_text(result.text)
+        if text:
+            cleaned.append(result.model_copy(update={"text": text}))
+    return [
+        {"text": subtitle.text, "start": subtitle.start_time, "end": subtitle.end_time}
+        for subtitle in deduplicate(cleaned)
+    ]

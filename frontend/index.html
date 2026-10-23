@@ -1,24 +1,19 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
-<head>
-  <meta charset="UTF-8" />
-  <title>OCR 字幕學習系統</title>
-  <link rel="stylesheet" href="style.css?v=20261015_02" />
-</head>
-<body>
-  <header class="app-header">
-    <h1>OCR 字幕學習系統</h1>
-    <button id="system-shutdown-btn" class="btn-shutdown" type="button" title="關閉後端伺服器並結束程序">關閉系統</button>
-  </header>
-
-  <!--
-    Phase 7：測試期間方便操作的功能區域（使用者決策紀錄，2026-07-26，見
-    PROJECT_NOTES.md 第 16 節）。成品完成後使用者會要求移除這整個
-    <section id="test-panel">，移除時不影響下面 <section id="main-panel">
-    的任何必要功能（檔案選取／開始／結果顯示／匯出）。
-  -->
+<html lang="zh-Hant"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>韓文影片學習</title><link rel="stylesheet" href="style.css?v=20261023f"></head><body>
+<header class="app-header"><a class="brand" href="#">韓文影片學習</a><a href="#word-library">我的單字庫 <span id="library-count">0</span></a><button id="ai-settings-btn" type="button">AI 翻譯：未啟用</button><button id="system-shutdown-btn" type="button">關閉系統</button></header>
+<main><section class="intro"><p class="eyebrow">WATCH · UNDERSTAND · REMEMBER</p><h1>看影片，順手收集單字。</h1><p>播放影片，點選字幕裡的單字，留下想記住的詞。</p></section>
+<section id="main-panel">
+<div class="source-tabs" role="group" aria-label="影片來源"><button type="button" id="youtube-mode-btn" aria-pressed="true">YouTube 連結</button><button type="button" id="local-mode-btn" aria-pressed="false">本機影片</button></div>
+<form id="youtube-form" class="youtube-form"><label for="youtube-url">YouTube 影片連結</label><div class="youtube-input-row"><input id="youtube-url" type="url" placeholder="貼上 youtube.com 或 youtu.be 連結" required><button id="youtube-load-btn" class="primary" type="submit">載入影片與字幕</button></div><p class="help">優先使用韓文人工字幕；沒有可讀取字幕時會提示其他方式。</p></form>
+<div id="local-upload" class="upload-row" hidden><label class="file-label">選擇影片<input type="file" id="video-file" accept=".mkv,.mp4,.mov,.avi"></label><button class="primary" id="start-btn" type="button">開始辨識</button><button id="cancel-btn" type="button" style="display:none">中斷運算</button><span id="selected-file">尚未選擇影片</span></div><p id="job-status-line" role="status">先選擇影片即可播放；開始辨識後會產生字幕與單字。</p>
+<div class="workspace-toolbar"><button id="timeline-toggle" type="button" aria-expanded="true" aria-controls="timeline-panel">收起字幕時間軸</button></div><div class="workspace" id="learning-workspace"><section class="player-column" aria-label="影片播放器"><div class="video-shell"><div id="youtube-player-wrap" hidden><div id="youtube-player"></div></div><video id="learning-video" controls playsinline preload="metadata" hidden></video><div id="video-placeholder"><span class="play-mark" aria-hidden="true">▷</span><h2>從一支影片開始</h2><p>貼上 YouTube 連結，或切換本機影片。</p></div></div><div class="player-tools"><button id="rewind-btn" type="button">倒退 5 秒</button><p id="player-notice" role="status">影片只在本機預覽，按「開始辨識」才會送往後端處理。</p></div><section class="current-caption" aria-label="三行字幕瀏覽"><div class="section-heading"><span class="eyebrow">字幕閱讀</span><span class="help">滾輪翻閱 · 點單字查釋義</span></div>
+<div class="caption-rows" id="caption-reader"><div class="caption-row caption-peek"><span class="caption-label">上一句</span><button id="previous-subtitle" class="caption-neighbor" type="button" disabled>影片開頭</button></div><div class="caption-row caption-focus"><div class="caption-focus-heading"><span class="caption-label" id="caption-position-label">目前</span><button id="caption-seek" type="button" class="caption-time" disabled>播放這一句</button></div><p id="current-subtitle">字幕準備好後，會在這裡跟隨影片顯示。</p></div><div class="caption-row caption-peek"><span class="caption-label">下一句</span><button id="next-subtitle" class="caption-neighbor" type="button" disabled>還沒有字幕</button></div></div>
+<div class="caption-controls"><div><button id="caption-prev-btn" type="button" aria-label="往前瀏覽一句字幕" disabled>↑ 上一句</button><button id="caption-next-btn" type="button" aria-label="往後瀏覽一句字幕" disabled>↓ 下一句</button></div><button id="caption-follow-btn" type="button" hidden>回到播放進度</button></div></section></section>
+<aside class="timeline-panel" id="timeline-panel"><div class="section-heading"><h2>字幕時間軸</h2><span id="subtitle-count">0 段</span></div><p class="help">點時間跳轉 · 點有底線的單字查看釋義</p><div id="results-controls" hidden><label>辨識結果 <select id="channel-select"></select></label><button id="export-btn" type="button">匯出全部 CSV</button></div><label class="auto-follow"><input id="follow-subtitles" type="checkbox" checked> 跟隨播放進度</label><div id="subtitle-list"><p class="empty-state">辨識完成後，字幕會出現在這裡。</p></div><p id="results-note" class="help"></p></aside></div>
+<section id="word-library" class="library"><div class="section-heading"><h2>我的單字庫</h2><button id="library-export-btn" type="button" disabled>匯出收藏 CSV</button></div><p class="help">保存在這個瀏覽器。重新開啟影片後，可以回到收藏的時間點。</p><div id="library-list"></div><p id="library-status" role="status"></p></section>
+<details class="technical"><summary>進階設定與執行紀錄</summary>
   <section id="test-panel" class="test-panel">
-    <h2>測試用工具區 <span class="badge">成品完成後將移除</span></h2>
+    <h2>辨識設定與環境檢查</h2>
 
     <div class="test-block">
       <button id="env-check-btn" type="button">一鍵確認環境是否齊全</button>
@@ -90,45 +85,14 @@
       </table>
     </div>
   </section>
-
-  <!-- 正式核心介面：檔案選取／開始／結果顯示／匯出，不受上方測試工具區影響 -->
-  <section id="main-panel">
-    <h2>影片處理</h2>
-    <div class="upload-row">
-      <input type="file" id="video-file" accept=".mkv,.mp4,.mov,.avi" />
-      <button id="start-btn" type="button">開始</button>
-      <button id="cancel-btn" type="button" class="btn-danger" style="display:none;">中斷運算</button>
-    </div>
-    <p id="job-status-line"></p>
-
-    <!-- 即時執行日誌控制台（正式保留功能） -->
-    <div class="log-section">
-      <div class="log-header">
-        <h3>執行日誌（即時）</h3>
-        <div class="log-actions">
-          <label><input type="checkbox" id="autoscroll-toggle" checked /> 自動捲動</label>
-          <button id="clear-logs-btn" type="button" class="btn-small">清空</button>
-        </div>
-      </div>
-      <pre id="realtime-log-box" class="log-box">尚未開始處理影片...</pre>
-    </div>
-
-    <div id="results-controls" hidden>
-      <label>顯示通道：
-        <select id="channel-select"></select>
-      </label>
-      <button id="export-btn" type="button">匯出檔案</button>
-    </div>
-
-    <table id="results-table" hidden>
-      <thead>
-        <tr><th>影片截圖</th><th>韓文單字</th><th>詞性</th><th>翻譯</th><th>例句</th></tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-    <p id="results-note"></p>
-  </section>
-
-  <script src="app.js?v=20261015_02"></script>
-</body>
-</html>
+<div class="log-section"><div class="section-heading"><h3>執行日誌</h3><div><label><input type="checkbox" id="autoscroll-toggle" checked> 自動捲動</label><button id="clear-logs-btn" type="button">清空</button></div></div><pre id="realtime-log-box">尚未開始處理影片...</pre></div>
+<details><summary>原始單字結果</summary><div class="table-wrap"><table id="results-table" hidden><thead><tr><th>影片截圖</th><th>韓文單字</th><th>詞性</th><th>翻譯</th><th>例句</th></tr></thead><tbody></tbody></table></div></details>
+</details></section></main>
+<dialog id="ai-settings-dialog" aria-labelledby="ai-settings-title"><form id="ai-settings-form"><div class="section-heading"><h2 id="ai-settings-title">AI 翻譯設定</h2><button id="ai-settings-close" type="button" aria-label="關閉 AI 設定">×</button></div>
+<p>選用功能。不設定 API，也能播放影片、查字典和收藏單字。</p>
+<label for="ai-api-key">你的 Gemini API 金鑰</label><input id="ai-api-key" type="password" autocomplete="new-password" spellcheck="false" placeholder="貼上金鑰，網站不會顯示儲存的內容">
+<label for="ai-model">Gemini 模型</label><input id="ai-model" type="text" list="ai-model-options" value="gemini-3.5-flash-lite" required><datalist id="ai-model-options"><option value="gemini-3.5-flash-lite"></option><option value="gemini-3.8-flash"></option><option value="gemini-2.5-flash-lite"></option></datalist>
+<p class="help">只在你點選單字時，將該句、前後句及字典候選交給 Gemini 判斷。會使用這組金鑰的額度。</p><p class="help">金鑰暫存在後端，最多 8 小時，伺服器重啟即清除。不與其他使用者共用。</p>
+<p id="ai-settings-status" role="status"></p><div class="ai-settings-actions"><button id="ai-disable-btn" type="button">停用並清除金鑰</button><button id="ai-save-btn" class="primary" type="submit">測試連線並啟用</button></div></form></dialog>
+<div id="word-popover" role="dialog" aria-label="單字釋義" hidden><div class="section-heading"><h2 id="popover-word"></h2><button id="popover-close" type="button" aria-label="關閉釋義">×</button></div><p class="meaning-source">影片語境 · 字典補充</p><div id="popover-meanings"></div><a id="popover-search" class="web-lookup" href="https://www.google.com/" target="_blank" rel="noopener noreferrer">搜尋韓文新詞與用法 ↗</a><p class="lookup-note">另開網頁搜尋，不會自動生成翻譯。</p><button id="save-word-btn" class="primary" type="button">加入單字庫</button></div>
+<script src="ai-settings.js?v=20261023f"></script><script src="youtube-player.js?v=20261023f"></script><script src="learning.js?v=20261023f"></script><script src="app.js?v=20261023f"></script></body></html>

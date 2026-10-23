@@ -121,6 +121,12 @@ async function startJob() {
   const startBtn = document.getElementById("start-btn");
   const cancelBtn = document.getElementById("cancel-btn");
   startBtn.disabled = true;
+  window.Learning.beginJob();
+  window.Learning.setBusy(true);
+  document.getElementById("video-file").disabled = true;
+  currentJobId = null;
+  if (pollTimer) clearInterval(pollTimer);
+  try { sessionStorage.removeItem("currentJobId"); } catch (_) {}
   cancelBtn.style.display = "inline-block";
   cancelBtn.disabled = false;
   document.getElementById("job-status-line").textContent = "上傳中...";
@@ -138,6 +144,7 @@ async function startJob() {
 
     currentJobId = body.job_id;
     try { sessionStorage.setItem("currentJobId", currentJobId); } catch (_) {}
+    try { sessionStorage.setItem("learningFileIdentity", window.Learning.fileIdentity()); } catch (_) {}
     document.getElementById("job-status-line").textContent =
       `工作已建立：${currentJobId}（狀態：${body.status}）`;
     appendLogMessage(`[系統] 伺服器已建立任務 ${currentJobId}，啟動背景管線處理...`);
@@ -146,6 +153,8 @@ async function startJob() {
     document.getElementById("job-status-line").textContent = `上傳失敗：${e.message}`;
     appendLogMessage(`[錯誤] 影片上傳失敗：${e.message}`);
     startBtn.disabled = false;
+    window.Learning.setBusy(false);
+    document.getElementById("video-file").disabled = false;
     cancelBtn.style.display = "none";
   }
 }
@@ -230,13 +239,25 @@ async function shutdownSystem() {
 async function pollStatus() {
   if (!currentJobId) return;
   await pollLogs();
-  const resp = await fetch(`${API_BASE}/api/jobs/${currentJobId}/status`);
+  let resp;
+  try { resp = await fetch(`${API_BASE}/api/jobs/${currentJobId}/status`); }
+  catch (_) { document.getElementById("job-status-line").textContent = "暫時無法連線後端，正在重試…"; return; }
+  if (resp.status === 404) {
+    clearInterval(pollTimer); pollTimer = null;
+    document.getElementById("start-btn").disabled = false;
+    document.getElementById("video-file").disabled = false;
+    document.getElementById("job-status-line").textContent = "找不到上次工作，請重新選擇影片開始。";
+    try { sessionStorage.removeItem("currentJobId"); } catch (_) {}
+    return;
+  }
   if (!resp.ok) return;
   const body = await resp.json();
 
-  document.getElementById("job-status-line").textContent =
-    `工作 ${currentJobId}｜狀態：${body.status}｜目前階段：${body.current_stage || "-"}` +
-    (body.error ? `｜錯誤：${body.error}` : "");
+  if (body.source) window.Learning.setSource(body.source);
+
+  document.getElementById("job-status-line").textContent = body.source
+    ? `已載入 ${body.source.subtitle_count} 段韓文${body.source.is_generated ? '自動' : '人工'}字幕，可播放影片或點選字幕學習。${body.source.warning || ''}`
+    : `狀態：${body.status}｜目前階段：${body.current_stage || "-"}` + (body.error ? `｜錯誤：${body.error}` : "");
 
   renderStageTiming(body.stages || []);
   updateChannelSelect(body.available_channels || []);
@@ -246,6 +267,8 @@ async function pollStatus() {
     pollTimer = null;
     await pollLogs();
     document.getElementById("start-btn").disabled = false;
+    window.Learning.setBusy(false);
+    document.getElementById("video-file").disabled = false;
     document.getElementById("cancel-btn").style.display = "none";
   }
 }
@@ -261,7 +284,7 @@ function updateChannelSelect(channels) {
   for (const ch of channels) {
     const opt = document.createElement("option");
     opt.value = ch;
-    opt.textContent = ch;
+    opt.textContent = ({channel1_mecab:'Mecab 韓文斷詞＋字典',channel1_okt:'Okt 韓文斷詞＋字典',channel1_komoran:'Komoran 韓文斷詞＋字典',channel1_kkma:'Kkma 韓文斷詞＋字典',channel2:'語意模型',channel3:'字典＋語意模型'})[ch] || ch;
     select.appendChild(opt);
   }
   if (channels.includes(previousValue)) select.value = previousValue;
@@ -279,12 +302,16 @@ async function loadResultsForSelectedChannel() {
   const channel = document.getElementById("channel-select").value;
   if (!currentJobId || !channel) return;
 
-  const resp = await fetch(
+  const requestedJob = currentJobId;
+  let resp;
+  try { resp = await fetch(
     `${API_BASE}/api/jobs/${currentJobId}/results?channel=${encodeURIComponent(channel)}`,
-  );
+  ); } catch (_) { return; }
   if (!resp.ok) return;
   const body = await resp.json();
+  if (requestedJob !== currentJobId || channel !== document.getElementById("channel-select").value) return;
   renderResultsTable(body);
+  await window.Learning.showResults(body, currentJobId);
 }
 
 function renderResultsTable(body) {
@@ -298,7 +325,9 @@ function renderResultsTable(body) {
     const tr = document.createElement("tr");
 
     const imgTd = document.createElement("td");
-    if (r.timestamp_start !== null && r.timestamp_start !== undefined) {
+    if (String(r.備註 || '').includes('YouTube')) {
+      imgTd.textContent = 'YouTube 字幕';
+    } else if (r.timestamp_start !== null && r.timestamp_start !== undefined) {
       const img = document.createElement("img");
       img.loading = "lazy";
       img.className = "frame-thumb";
@@ -364,6 +393,37 @@ document.getElementById("clear-logs-btn").addEventListener("click", () => {
 });
 document.getElementById("channel-select").addEventListener("change", loadResultsForSelectedChannel);
 document.getElementById("export-btn").addEventListener("click", exportResults);
+document.getElementById("youtube-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  if (document.getElementById('youtube-load-btn').disabled) return;
+  const url = document.getElementById('youtube-url').value.trim();
+  if (!url) return;
+  const previousJob = currentJobId;
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  window.Learning.setBusy(true);
+  document.getElementById('start-btn').disabled = true;
+  document.getElementById('job-status-line').textContent = '正在取得韓文字幕並查詢字典，請稍候…';
+  try {
+    const response = await fetch('/api/youtube/import', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url})});
+    const result = await response.json();
+    if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : `載入失敗（${response.status}）`);
+    window.Learning.beginJob();
+    currentJobId = result.job_id; lastAvailableChannels = []; lastLogId = 0;
+    document.getElementById('results-controls').hidden = true;
+    document.getElementById('results-table').hidden = true;
+    window.Learning.setSource(result.source);
+    try {
+      sessionStorage.setItem('currentJobId', currentJobId);
+      sessionStorage.setItem('learningFileIdentity', window.Learning.fileIdentity());
+    } catch (_) {}
+    startPolling();
+  } catch (error) {
+    currentJobId = previousJob;
+    document.getElementById('job-status-line').textContent = error.message;
+  } finally {
+    window.Learning.setBusy(false); document.getElementById('start-btn').disabled = false;
+  }
+});
 
 toggleChannel1Engines();
 
@@ -372,6 +432,7 @@ try {
   const savedJobId = sessionStorage.getItem("currentJobId");
   if (savedJobId) {
     currentJobId = savedJobId;
+    window.Learning.restoreFile(sessionStorage.getItem("learningFileIdentity"));
     const logBox = document.getElementById("realtime-log-box");
     if (logBox && (logBox.textContent.trim() === "尚未開始處理影片..." || !logBox.textContent.trim())) {
       logBox.textContent = `[系統] 載入既有工作 ${currentJobId}，正在同步最新狀態與日誌...\n`;
