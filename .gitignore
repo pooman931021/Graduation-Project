@@ -59,3 +59,6 @@ data/jobs.sqlite3
 # Large PDF Papers & Reference Documents
 參考論文/
 *.pdf
+# Local recognition model downloads and desktop runtime
+data/models/
+data/desktop/

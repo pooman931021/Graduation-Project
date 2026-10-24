@@ -86,8 +86,14 @@ async function startJob() {
     return;
   }
 
+  const options=window.LocalMedia.options();
+  if (options.recognition_mode.startsWith('gemini_') && !window.AISettings.enabled()) {
+    document.getElementById('job-status-line').textContent='請先設定自己的 Gemini API，或選擇不需 API 的本機模式。';
+    document.getElementById('ai-settings-btn').click();return;
+  }
   const form = new FormData();
   form.append("file", fileInput.files[0]);
+  Object.entries(options).forEach(([key,value])=>form.append(key,value));
 
   // --- 測試用參數（見 1) 段落說明，成品完成後這些欄位會被移除或改為固定值）---
   form.append("denoise", document.getElementById("param-denoise").checked);
@@ -143,6 +149,7 @@ async function startJob() {
     if (!resp.ok) throw new Error(body.detail || `HTTP ${resp.status}`);
 
     currentJobId = body.job_id;
+    window.Learning.attachJob(currentJobId);
     try { sessionStorage.setItem("currentJobId", currentJobId); } catch (_) {}
     try { sessionStorage.setItem("learningFileIdentity", window.Learning.fileIdentity()); } catch (_) {}
     document.getElementById("job-status-line").textContent =
@@ -252,13 +259,28 @@ async function pollStatus() {
   }
   if (!resp.ok) return;
   const body = await resp.json();
+  window.Learning.attachJob(body.job_id);
+  if (body.recognition) window.LocalMedia.restoreResult(body.job_id,body.recognition);
+  const running=body.status==='running' || body.status==='queued';
+  document.getElementById('start-btn').disabled=running;
+  document.getElementById('video-file').disabled=running;
+  window.Learning.setBusy(running);
+  document.getElementById('cancel-btn').style.display=running?'inline-block':'none';
 
   if (body.source) window.Learning.setSource(body.source);
+  else if (body.video_url) window.Learning.restoreLocalVideo(body.job_id,body.original_filename,body.video_url,body.playback_ready);
 
   document.getElementById("job-status-line").textContent = body.source
     ? `已載入 ${body.source.subtitle_count} 段韓文${body.source.is_generated ? '自動' : '人工'}字幕，可播放影片或點選字幕學習。${body.source.warning || ''}`
     : `狀態：${body.status}｜目前階段：${body.current_stage || "-"}` + (body.error ? `｜錯誤：${body.error}` : "");
 
+  if (!body.source) {
+    const line=document.getElementById('job-status-line');
+    const states={queued:'排隊中',running:'辨識中',done:'完成',failed:'辨識失敗',cancelled:'已停止'};
+    line.textContent=body.recognition && body.status==='done'
+      ? `${body.recognition.label} · ${body.recognition.subtitle_count} 段字幕${body.recognition.limit?'（僅辨識所選的前段範圍）':''}。${body.recognition.warning||''}`
+      : `${states[body.status]||body.status} · ${body.current_stage||'準備中'}${body.error?'｜'+body.error:''}`;
+  }
   renderStageTiming(body.stages || []);
   updateChannelSelect(body.available_channels || []);
 

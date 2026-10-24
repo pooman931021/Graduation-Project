@@ -190,6 +190,9 @@ def resolve_frame_path(data_output_root: str | Path, video_id: str, timestamp: f
 def read_subtitles(data_output_root: str | Path, video_id: str) -> list[dict]:
     """Read actual OCR sentences; exported dictionary examples are not subtitles."""
     import json
+    local_path = Path(data_output_root) / video_id / 'local.json'
+    if local_path.exists():
+        return json.loads(local_path.read_text(encoding='utf-8'))['subtitles']
     youtube_path = Path(data_output_root) / video_id / "youtube.json"
     if youtube_path.exists():
         return json.loads(youtube_path.read_text(encoding="utf-8"))["subtitles"]

@@ -82,6 +82,16 @@ def write_youtube_results(root: Path, video_id: str, fetched: dict, dictionary_p
         raise YouTubeImportError('字幕內容為空，請換另一支影片。')
     if len(subtitles) > 20000:
         raise YouTubeImportError('這支影片的字幕過長，請先選較短的影片。')
+    warning = export_subtitle_dictionary(root, subtitles, dictionary_path, 'YouTube')
+    source = {'type': 'youtube', 'youtube_id': video_id,
+              'url': f'https://www.youtube.com/watch?v={video_id}',
+              'language': fetched['language'], 'is_generated': fetched['is_generated'],
+              'subtitle_count': len(subtitles), 'warning': warning}
+    (root / 'youtube.json').write_text(json.dumps({'source': source, 'subtitles': subtitles}, ensure_ascii=False), encoding='utf-8')
+    return source
+
+
+def export_subtitle_dictionary(root: Path, subtitles: list[dict], dictionary_path: str, label: str, check=None):
     records = []
     warning = None
     try:
@@ -89,6 +99,7 @@ def write_youtube_results(root: Path, video_id: str, fetched: dict, dictionary_p
         with DictionaryIndex(dictionary_path) as dictionary:
             cache = {}
             for line in subtitles:
+                if check: check()
                 seen = set()
                 for token in tokenizer.tokenize(line['text']):
                     # Leave particles and endings intact in the sentence, but do not add them as vocabulary.
@@ -109,17 +120,13 @@ def write_youtube_results(root: Path, video_id: str, fetched: dict, dictionary_p
                         records.append(ExportRecord(
                             原文=token.word, 中文=candidate.translation, 詞性=candidate.part_of_speech,
                             例句=candidate.example,
-                            備註=f'字典原形={form}｜YouTube字幕 {line["start"]:.3f}s-{line["end"]:.3f}s',
+                            備註=f'字典原形={form}｜{label}字幕 {line["start"]:.3f}s-{line["end"]:.3f}s',
                         ))
     except Exception:
+        if check: check()
         records = []
         warning = '字幕已載入，但本機斷詞或字典尚未就緒；仍可播放、點字及收藏，釋義暫不可用。'
     channel = root / 'channel1_mecab'
     channel.mkdir(parents=True, exist_ok=True)
     export_csv(records, channel / 'export.csv')
-    source = {'type': 'youtube', 'youtube_id': video_id,
-              'url': f'https://www.youtube.com/watch?v={video_id}',
-              'language': fetched['language'], 'is_generated': fetched['is_generated'],
-              'subtitle_count': len(subtitles), 'warning': warning}
-    (root / 'youtube.json').write_text(json.dumps({'source': source, 'subtitles': subtitles}, ensure_ascii=False), encoding='utf-8')
-    return source
+    return warning

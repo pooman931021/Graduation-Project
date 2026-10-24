@@ -63,20 +63,27 @@ class ContextAnswer(BaseModel):
     sense_index: int
 
 
-def _request(key: str, model: str, payload: dict) -> str:
+def _request(key: str, model: str, payload: dict, timeout=(5,25)) -> str:
     if not re.fullmatch(r'[A-Za-z0-9_.-]{1,100}', model):
         raise AIError('模型名稱格式不正確。')
     try:
         response = requests.post(ENDPOINT, headers={'x-goog-api-key': key, 'Content-Type': 'application/json'},
-                                 json={'model':model,'store':False,**payload}, timeout=(5,25))
+                                 json={'model':model,'store':False,**payload}, timeout=timeout)
     except requests.RequestException:
         raise AIError('AI 連線逾時或無法連線，字幕與字典功能仍可使用。') from None
     errors = {400:'AI 請求未成功，請確認金鑰及模型設定。',
               401:'API 金鑰無效，請重新設定。',403:'這組金鑰沒有使用權限，請檢查金鑰限制。',
               404:'找不到這個模型，請改用帳號可用的 Gemini 模型。',
-              429:'AI 額度或請求速率已達上限，請稍後再試；不會自動升級或重試。'}
+              413:'Gemini 拒絕這次傳送的資料大小，需要減少單次送出的影格。',
+              422:'Gemini 未接受這次辨識請求，需檢查媒體與模型格式。',
+              429:'AI 額度或請求速率已達上限，請稍後再試；不會自動升級或重試。',
+              500:'Gemini 處理請求時發生內部錯誤，請稍後重試或改用本機模式。',
+              502:'Gemini 上游連線回覆異常，請稍後再試。',
+              503:'Gemini 目前忙碌或服務不可用，請稍後再試。',
+              504:'Gemini 上游處理逾時，請稍後再試。'}
     if not response.ok:
-        raise AIError(errors.get(response.status_code,'AI 服務暫時無法使用，請稍後再試。'))
+        message=errors.get(response.status_code,'Gemini 未完成這次請求，需要依錯誤碼進一步檢查。')
+        raise AIError(f'{message}（Gemini HTTP {int(response.status_code)}）')
     try:
         body=response.json()
         chunks=[part['text'] for step in body.get('steps',[]) if step.get('type')=='model_output'

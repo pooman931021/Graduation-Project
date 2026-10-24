@@ -7,7 +7,7 @@ window.Learning = (() => {
   let videoUrl = null, selectedFile = null, resultFile = null, jobId = null;
   let subtitles = [], records = [], selected = null, anchor = null, active = '';
   let revision = 0;
-  let source = null, currentMode = 'youtube';
+  let source = null, currentMode = 'youtube', serverVideoJob = null, serverVideoName = '';
   const contextCache = new Map();
   let captionIndex = 0, browsingCaptions = false, captionAnimation = null;
   let library = [];
@@ -44,7 +44,9 @@ window.Learning = (() => {
       if (!Number.isFinite(seconds)) return;
       window.YouTubePlayback.seek(seconds); return;
     }
-    if (!selectedFile || (fileIdentity && identity(selectedFile) !== fileIdentity)) {
+    const originalSelected = selectedFile && (!fileIdentity || identity(selectedFile) === fileIdentity);
+    const originalUploaded = serverVideoJob === jobId && fileIdentity === resultFile;
+    if (!originalSelected && !originalUploaded) {
       $('player-notice').textContent = '請先重新選擇這筆結果對應的原影片，再跳轉片段。'; return;
     }
     if (video.readyState < 1 || !Number.isFinite(seconds) || seconds < 0 || seconds >= video.duration) {
@@ -105,7 +107,7 @@ window.Learning = (() => {
     }])).values()];
     selected = { key: JSON.stringify([resultFile || jobId, word, line.start]), word, meanings,
       start: line.start, jobId, fileIdentity: resultFile,
-      fileName: source ? `YouTube ${source.youtube_id}` : selectedFile?.name || '', sentence: line.text };
+      fileName: source ? `YouTube ${source.youtube_id}` : selectedFile?.name || serverVideoName || '', sentence: line.text };
     $('popover-word').textContent = word;
     $('popover-search').href = 'https://www.google.com/search?q=' + encodeURIComponent(word + ' 뜻 신조어');
     selected.allMeanings = meanings;
@@ -128,6 +130,7 @@ window.Learning = (() => {
       if (selected !== selection) return;
       selection.loading = false;
       selection.meanings = result.primary_meaning ? [result.primary_meaning] : [];
+      selection.allMeanings = [...selection.meanings,...(result.other_meanings || [])];
       selection.sentenceTranslation = result.sentence_translation || '';
       selection.meaningSource = result.primary_status;
       if (!popover.hidden) { renderWordContext(result); updateSave(); positionPopover(); }
@@ -144,42 +147,60 @@ window.Learning = (() => {
   }
   function renderWordContext(result, loading = false) {
     const content = $('popover-meanings'); content.replaceChildren();
-    const context = element('section', undefined, 'video-word-meaning');
-    context.append(element('h3','影片中的用法'));
+    const dictionaryOnly = !result.primary_meaning || result.primary_status === 'dictionary_reference';
+    const context = element('section', undefined, 'video-word-meaning' + (dictionaryOnly ? ' dictionary-reference' : ''));
+    popover.querySelector('.meaning-source').textContent = dictionaryOnly ? '本機字典 · 不需 API' : '影片語境 · 字典補充';
+    context.append(element('h3',dictionaryOnly ? '字典釋義' : '影片中的用法'));
+    if (result.primary_meaning) {
+      context.append(element('p',result.primary_meaning.translation,'context-translation'));
+      const origins={dictionary_reference:'本機字典釋義',user_selected:'你選定的本句意思',whole_caption:'影片原有的中文字幕對照',ai_context:'AI 語境解釋 · 未查詢網路',caption_match:'字幕與字典對照 · 尚待確認'};
+      context.append(element('p',origins[result.primary_status] || '字典對照','meaning-origin'));
+    }
     context.append(element('p',result.sentence || selected.sentence,'video-sentence'));
-    if (loading) context.append(element('p',window.AISettings?.enabled() ? '正在判斷這句影片中的用法…' : '正在讀取影片中文對照…','help'));
-    else {
-      if (result.primary_meaning) {
-        context.append(element('p',result.primary_meaning.translation,'context-translation'));
-        context.append(element('p',result.primary_status === 'user_selected' ? '你選定的本句意思' : result.primary_status === 'whole_caption' ? '影片原有的中文字幕對照' : result.primary_status === 'ai_context' ? 'AI 語境解釋 · 未查詢網路' : '字幕與字典對照 · 尚待確認','meaning-origin'));
-      }
-      if (result.sentence_translation && result.primary_status !== 'whole_caption') {
-        context.append(element('p',result.translation_source || '影片原有的中文字幕','meaning-origin'));
-        context.append(element('p',result.sentence_translation,'caption-translation'));
-      }
-      if (!result.primary_meaning) {
-        context.append(element('p',result.sentence_translation ? '已提供原句中文對照；單字在此處的意思尚待確認。' : '還無法確認這個詞在本句的意思。','help'));
-      }
+    if (loading && window.AISettings?.enabled()) context.append(element('p','正在判斷影片中的用法…','help'));
+    if (result.sentence_translation && result.primary_status !== 'whole_caption') {
+      context.append(element('p',result.translation_source || '影片原有的中文字幕','meaning-origin'));
+      context.append(element('p',result.sentence_translation,'caption-translation'));
+    }
+    const alternatives = result.other_meanings || [];
+    if (!loading && !result.primary_meaning && !alternatives.length) {
+      context.append(element('p','本機字典暫無這個詞，可使用下方網路搜尋。','help'));
+    }
+    if (result.primary_status === 'ai_context' || result.ai_status === 'unavailable' || result.ai_status === 'uncertain') {
       if (result.note) context.append(element('p',result.note,'context-note'));
+    } else if (dictionaryOnly && result.primary_meaning) {
+      context.append(element('p','可直接收藏；字典釋義不代表已判斷本句語境。','context-note'));
     }
     content.append(context);
-    const alternatives = result.other_meanings || [];
+    function meaningItem(meaning) {
+      const item=element('section',undefined,'alternative-meaning');
+      item.append(element('p',meaning.translation || '尚無中文釋義'),element('p',meaning.pos,'pos'));
+      if (meaning.example) {
+        const example=element('details',undefined,'dictionary-example');
+        example.append(element('summary','查看字典例句'),element('p',meaning.example,'help'));item.append(example);
+      }
+      item.append(button('選為這句的意思',()=>{
+        selected.meanings=[meaning]; selected.meaningSource='user_selected';
+        const rest=selected.allMeanings.filter(other=>JSON.stringify(other)!==JSON.stringify(meaning));
+        renderWordContext({...result,primary_meaning:meaning,primary_status:'user_selected',other_meanings:rest,note:''});
+        updateSave();positionPopover();
+      },'choose-meaning'));
+      return item;
+    }
     if (alternatives.length) {
-      const details=element('details',undefined,'other-meanings');
-      details.append(element('summary',`${result.primary_meaning ? '其他字典用法' : '查看字典可能用法'}（${alternatives.length}）`));
-      alternatives.forEach(meaning => {
-        const item=element('section',undefined,'alternative-meaning');
-        item.append(element('p',meaning.translation || '尚無中文釋義'),element('p',meaning.pos,'pos'));
-        if (meaning.example) item.append(element('p',meaning.example,'help'));
-        item.append(button('選為這句的意思',()=>{
-          selected.meanings=[meaning]; selected.meaningSource='user_selected';
-          const rest=selected.allMeanings.filter(other=>JSON.stringify(other)!==JSON.stringify(meaning));
-          renderWordContext({...result,primary_meaning:meaning,primary_status:'user_selected',other_meanings:rest,note:''});
-          updateSave();positionPopover();
-        },'choose-meaning'));
-        details.append(item);
-      });
-      details.addEventListener('toggle',positionPopover);content.append(details);
+      let remaining=alternatives;
+      if (!result.primary_meaning) {
+        const visible=element('div',undefined,'dictionary-candidates');
+        if (alternatives.length>1) visible.append(element('p','有多種字典意思，可選擇符合這句的用法。','help'));
+        alternatives.slice(0,2).forEach(meaning=>visible.append(meaningItem(meaning)));
+        content.append(visible);remaining=alternatives.slice(2);
+      }
+      if (remaining.length) {
+        const details=element('details',undefined,'other-meanings');
+        details.append(element('summary',`其他字典用法（${remaining.length}）`));
+        remaining.forEach(meaning=>details.append(meaningItem(meaning)));
+        details.addEventListener('toggle',positionPopover);content.append(details);
+      }
     }
   }
   function token(word, matching, line) {
@@ -346,7 +367,10 @@ window.Learning = (() => {
   document.addEventListener('ai-settings-changed', () => { contextCache.clear(); close(); });
   $('video-file').addEventListener('change', () => {
     const file = $('video-file').files[0]; if (!file) return;
-    selectedFile = file; video.pause(); if (videoUrl) URL.revokeObjectURL(videoUrl);
+    serverVideoJob=null; serverVideoName='';
+    selectedFile = file; $('file-picker-text').textContent = '更換影片';
+    $('selected-file-meta').textContent = `${file.size >= 1048576 ? (file.size / 1048576).toFixed(1) + ' MB' : Math.max(1,Math.round(file.size / 1024)) + ' KB'} · ${file.name.split('.').pop().toUpperCase()}`;
+    video.pause(); if (videoUrl) URL.revokeObjectURL(videoUrl);
     source = null; window.YouTubePlayback.hide();
     videoUrl = URL.createObjectURL(file); video.src = videoUrl; video.hidden = false; video.load();
     $('video-placeholder').hidden = true; $('selected-file').textContent = file.name;
@@ -382,11 +406,12 @@ window.Learning = (() => {
   function setMode(mode) {
     currentMode = mode;
     $('youtube-form').hidden = mode !== 'youtube'; $('local-upload').hidden = mode !== 'local';
+    $('repair-video-btn').hidden=mode!=='local';
     $('youtube-mode-btn').setAttribute('aria-pressed', String(mode === 'youtube'));
     $('local-mode-btn').setAttribute('aria-pressed', String(mode === 'local'));
     close();
     if (mode === 'local') {
-      window.YouTubePlayback.hide(); video.hidden = !selectedFile; $('video-placeholder').hidden = !!selectedFile;
+      window.YouTubePlayback.hide(); video.hidden = !(selectedFile || serverVideoJob); $('video-placeholder').hidden = !!(selectedFile || serverVideoJob);
     } else {
       video.pause(); video.hidden = true;
       if (source) window.YouTubePlayback.load(source.youtube_id).catch(error => { $('player-notice').textContent = error.message; });
@@ -401,17 +426,49 @@ window.Learning = (() => {
     $('player-notice').textContent = `${value.is_generated ? '韓文自動字幕' : '韓文人工字幕'} · ${value.subtitle_count} 段${value.warning ? ' · ' + value.warning : ''}`;
     $('current-subtitle').textContent = '按播放開始，字幕會隨著影片進度顯示。';
   }
+  function restoreLocalVideo(id, name, url, compatible=false) {
+    if (selectedFile && (!compatible || identity(selectedFile)!==resultFile)) return;
+    if (compatible) url += '?compatible=1';
+    if (serverVideoJob === id && video.getAttribute('src') === url) return;
+    const position=video.currentTime;
+    serverVideoJob=id; serverVideoName=name || '已上傳影片';
+    source=null; resultFile=resultFile || `local:${id}`;
+    video.src=url; video.load();setMode('local');
+    video.addEventListener('loadedmetadata',()=>{if(position<video.duration)video.currentTime=position;},{once:true});
+    $('selected-file').textContent=serverVideoName;
+    $('selected-file-meta').textContent='已上傳 · 可直接播放';
+    $('file-picker-text').textContent='更換影片';
+    $('player-notice').textContent=compatible ? '已載入相容播放版本；原影片與字幕時間不變。' : '已恢復這次工作上傳的影片，不用重新選檔。';
+  }
+  $('repair-video-btn').addEventListener('click',async()=>{
+    if (!jobId) { $('player-notice').textContent='請先上傳影片建立工作，才能產生相容播放版本。';return; }
+    const button=$('repair-video-btn');button.disabled=true;
+    $('player-notice').textContent='正在本機轉換相容播放版本，原影片不會修改。請稍候…';
+    try {
+      const response=await fetch(`/api/jobs/${encodeURIComponent(jobId)}/prepare-video`,{method:'POST'});
+      const result=await response.json();
+      if (!response.ok) throw new Error(result.detail || '轉換未成功');
+      const position=video.currentTime;
+      video.src=result.video_url;video.hidden=false;video.load();
+      video.addEventListener('loadedmetadata',()=>{if(position<video.duration)video.currentTime=position;},{once:true});
+      $('player-notice').textContent='已切換相容版本，請按播放確認畫面。字幕仍對應原影片時間。';
+    } catch(error) { $('player-notice').textContent=error.message; }
+    finally {button.disabled=false;}
+  });
   $('youtube-mode-btn').addEventListener('click', () => setMode('youtube'));
   $('local-mode-btn').addEventListener('click', () => setMode('local'));
   return {
     showResults,
+    attachJob(id) { jobId=id; },
     setSource,
+    restoreLocalVideo,
     setBusy(value) {
+      window.LocalMedia?.setBusy(value);
       $('youtube-load-btn').disabled = value; $('youtube-url').disabled = value;
       $('youtube-mode-btn').disabled = value; $('local-mode-btn').disabled = value;
     },
     beginJob() {
-      ++revision; source = null; resultFile = identity(selectedFile); close(); subtitles = []; records = []; renderTimeline();
+      ++revision; jobId=null; source = null; resultFile = identity(selectedFile); close(); subtitles = []; records = []; renderTimeline();
       $('current-subtitle').textContent = '影片辨識中，請稍候。';
     },
     restoreFile(value) { resultFile = value || null; },

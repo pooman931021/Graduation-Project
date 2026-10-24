@@ -4,7 +4,7 @@ window.AISettings = (() => {
   let configured=false;
   function apply(settings) {
     configured=!!settings.configured;
-    $('ai-settings-btn').textContent=configured?'AI 翻譯：已啟用':'AI 翻譯：未啟用';
+    $('ai-settings-btn').textContent=configured?'Gemini：已啟用':'Gemini：未啟用';
     $('ai-model').value=settings.model || 'gemini-3.5-flash-lite';
     $('ai-disable-btn').disabled=!configured;
   }

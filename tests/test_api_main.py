@@ -393,3 +393,26 @@ def test_system_shutdown_endpoint(api_env, monkeypatch):
     assert resp.status_code == 200
     assert resp.json()["status"] == "shutting_down"
 
+
+
+def test_uploaded_video_can_be_restored_and_supports_range(api_env):
+    response=_upload(api_env)
+    job=response.json()['job_id']
+    client=api_env['client']
+    assert client.get(f'/api/jobs/{job}/status').json()['video_url']==f'/api/jobs/{job}/video'
+    video=client.get(f'/api/jobs/{job}/video',headers={'Range':'bytes=0-3'})
+    assert video.status_code==206
+    assert video.content==b'FAKE'
+    assert video.headers['content-range'].startswith('bytes 0-3/')
+    assert client.get('/api/jobs/not-found/video').status_code==404
+
+
+def test_video_repair_uses_original_without_altering_it(api_env,monkeypatch):
+    import src.api.main as main
+    captured=[]
+    monkeypatch.setattr(main,'prepare_playback',lambda video,root:captured.append((video,root)))
+    job=_upload(api_env).json()['job_id']
+    response=api_env['client'].post(f'/api/jobs/{job}/prepare-video')
+    assert response.status_code==200
+    assert response.json()['video_url'].endswith('?compatible=1')
+    assert captured[0][0].read_bytes()==b'FAKEVIDEOBYTES'

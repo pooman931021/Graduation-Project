@@ -77,3 +77,17 @@ def test_broader_chinese_caption_does_not_become_a_single_word_translation(tmp_p
     result=resolve_context(tmp_path,'job','안녕',2,'channel1_mecab')
     assert result['primary_meaning'] is None
     assert result['primary_status']=='unconfirmed'
+
+
+def test_single_dictionary_meaning_available_without_ai_but_not_labeled_context(tmp_path,monkeypatch):
+    import src.api.word_context as module
+    monkeypatch.setattr(module,'read_subtitles',lambda *_:[{'text':'오늘 날씨가 좋아요','start':0,'end':3}])
+    monkeypatch.setattr(module,'read_channel_results',lambda *_:{'records':[
+        {'原文':'날씨','中文':'天气','timestamp_start':0,'詞性':'명사'},
+    ]})
+    monkeypatch.setattr(module,'explain',lambda *_: (_ for _ in ()).throw(AssertionError('No AI without API')))
+    result=resolve_context(tmp_path,'job','날씨',0,'channel1_mecab')
+    assert result['primary_meaning']['translation']=='天气'
+    assert result['primary_status']=='dictionary_reference'
+    assert result['ai_status']=='disabled'
+    assert result['other_meanings']==[]

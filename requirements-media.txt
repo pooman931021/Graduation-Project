@@ -1,0 +1,4 @@
+# Optional local-video speech recognition and bundled ffmpeg (no paid API).
+# Install inside the project's virtual environment: python -m pip install -r requirements-media.txt
+faster-whisper>=1.2,<2
+imageio-ffmpeg>=0.6,<1

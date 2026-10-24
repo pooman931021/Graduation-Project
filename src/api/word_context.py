@@ -103,6 +103,11 @@ def resolve_context(data_root: Path, job_video_id: str, word: str, timestamp: fl
     primary=meanings[selected] if selected is not None else None
     status='caption_match' if selected is not None else 'unconfirmed'
     note='依中文字幕與字典比對，仍需確認語境。' if selected is not None else '尚未啟用 AI 語境判斷，這個單字的本句用法仍待確認。'
+    if primary is None and len(meanings) == 1:
+        primary=meanings[0]
+        selected=0
+        status='dictionary_reference'
+        note='本機字典釋義，未使用 AI 判斷語境。'
     if exact_caption:
         primary={'translation':chinese,'pos':'字幕對照','example':line['text']}
         status='whole_caption'; selected=None

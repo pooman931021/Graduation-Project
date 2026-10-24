@@ -110,3 +110,21 @@ def test_context_places_ai_meaning_first_and_folds_other_senses(tmp_path,monkeyp
     assert result['primary_status']=='ai_context'
     assert result['other_meanings'][0]['translation']=='安寧'
     assert len(result['other_meanings'])==1
+
+
+@pytest.mark.parametrize('code,expected',[(500,'內部錯誤'),(503,'忙碌'),(413,'資料大小'),(429,'額度'),(418,'進一步檢查')])
+def test_provider_failure_preserves_safe_http_code_without_body(monkeypatch,code,expected):
+    import src.api.ai_context as module
+    class Failed:
+        ok=False
+        status_code=code
+        text='private-key-and-media-do-not-expose'
+    calls=[]
+    def post(*args,**kwargs):calls.append(1);return Failed()
+    monkeypatch.setattr(module.requests,'post',post)
+    with pytest.raises(AIError) as caught:
+        module._request('secret-not-output','gemini-test',{})
+    text=str(caught.value)
+    assert f'HTTP {code}' in text and expected in text
+    assert 'secret-not-output' not in text and 'private-key' not in text
+    assert len(calls)==1  # No automatic retries or extra paid calls.
